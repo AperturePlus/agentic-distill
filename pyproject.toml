@@ -1,0 +1,32 @@
+[project]
+name = "agentic-distill"
+version = "0.1.0"
+description = "Framework for distilling agentic datasets from a frontier model."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [
+  { name = "Distillation Team" }
+]
+dependencies = [
+  "httpx>=0.27.0",
+  "pyyaml>=6.0",
+  "pydantic>=2.6",
+  "tqdm>=4.65",
+  "rich>=13.7",
+  "pandas>=2.0",
+  "tenacity>=8.2"
+]
+
+[project.optional-dependencies]
+dev = [
+  "black",
+  "ruff",
+  "pytest",
+  "ipykernel"
+]
+
+[build-system]
+requires = ["setuptools>=65", "wheel"]
+build-backend = "setuptools.build_meta"
+
