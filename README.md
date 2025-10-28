@@ -55,6 +55,7 @@ The script will produce JSONL shards under `data/exports/` containing fully vali
 - `teacher_pool` and `reviewer_pool` describe weighted sets of endpoints. Use `preferred_order` to bias toward your favourite model while keeping alternates ready.
 - `review_flow` toggles reviewer scoring, minimum score thresholds, and the number of automated refinement rounds.
 - `prompts` injects consistent guidance for teachers and reviewers, including the English-first + Chinese recap requirement.
+- `model_presets` lets you define reusable endpoint templates that pools reference via `preset`, keeping YAML DRY while still allowing per-run overrides.
 - `concurrency.max_workers` controls how many scenarios run in parallel; tune it to match your API throughput budget.
 - Each scenario template can pin custom parameters while inheriting the global language and quality guardrails.
 - MCP integration scenarios (`agentic_distill.generators.mcp:MCPScenarioGenerator`) automatically ingest MCP server JSON dossiers and emit rich metadata about the chosen server, mission, and tool focus.

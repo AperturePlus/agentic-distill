@@ -9,10 +9,17 @@ import httpx
 from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from .config import ModelEndpointConfig
+from .utils import deep_merge_dict
 
 
 class TeacherClientError(RuntimeError):
     """Raised when the teacher API call fails."""
+
+
+def _truncate(value: str, limit: int = 1000) -> str:
+    if len(value) <= limit:
+        return value
+    return value[:limit] + "...[truncated]"
 
 
 class TeacherClient:
@@ -30,6 +37,8 @@ class TeacherClient:
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
+        headers.update(config.extra_headers or {})
+
         self._client = httpx.Client(
             base_url=config.base_url or self._default_base_url(),
             headers=headers,
@@ -82,20 +91,45 @@ class TeacherClient:
                 payload["tool_choice"] = tool_choice
             if response_format:
                 payload["response_format"] = response_format
+            if self.config.request_overrides:
+                payload = deep_merge_dict(payload, self.config.request_overrides)
+
+            path = self.config.completion_path
+            if not path.startswith("/"):
+                path = f"/{path}"
 
             try:
-                response = self._client.post("/chat/completions", json=payload)
+                response = self._client.post(path, json=payload)
             except httpx.HTTPError as exc:
-                raise TeacherClientError(f"HTTP error from teacher API: {exc}") from exc
+                raise TeacherClientError(
+                    f"[{self.config.provider}:{self.config.model}] transport error: {exc}"
+                ) from exc
 
             if response.status_code >= 400:
+                request_id = (
+                    response.headers.get("x-request-id")
+                    or response.headers.get("x-requestid")
+                    or response.headers.get("request-id")
+                    or "unknown"
+                )
                 raise TeacherClientError(
-                    f"Teacher API error ({response.status_code}): {response.text}"
+                    f"[{self.config.provider}:{self.config.model}] HTTP {response.status_code} "
+                    f"(request_id={request_id}, payload_keys={sorted(payload.keys())}) "
+                    f"body={_truncate(response.text)}"
                 )
 
-            data = response.json()
+            try:
+                data = response.json()
+            except ValueError as exc:
+                raise TeacherClientError(
+                    f"[{self.config.provider}:{self.config.model}] Invalid JSON response: "
+                    f"{_truncate(response.text)}"
+                ) from exc
+
             if "choices" not in data or not data["choices"]:
-                raise TeacherClientError("Teacher API returned no choices.")
+                raise TeacherClientError(
+                    f"[{self.config.provider}:{self.config.model}] API returned no choices."
+                )
             return data
 
         return retryer.call(_do_call)

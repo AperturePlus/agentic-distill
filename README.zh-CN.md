@@ -59,8 +59,37 @@ flowchart LR
 - `teacher_pool` 与 `reviewer_pool` 描述了带权重的端点集合。使用 `preferred_order` 来偏向首选模型，同时保留备选。
 - `review_flow` 控制是否启用审核者评分、最小接受分数阈值，以及自动精炼轮数。
 - `prompts` 注入对 teacher 与 reviewer 的一致性指引，包括英文优先并辅以中文摘要的要求。
+- `model_presets` 允许定义可复用的端点模板，池（pools）通过 `preset` 引用这些模板以保持 YAML 的 DRY（不要重复自己），同时仍然支持按运行覆盖。
 - `concurrency.max_workers` 控制并行运行的场景数量；根据你的 API 吞吐预算进行调整。
 - 每个场景模板可以在继承全局语言与质量护栏的同时，固定自定义参数。
+
+### 准备问题库
+
+#### 终端（SRE）种子
+
+1. 使用最强的 teacher 模型生成种子（配置见 `configs/casegen.terminal.yaml`）：
+
+   ```bash
+   python scripts/generate_cases.py --config configs/casegen.terminal.yaml
+   ```
+
+   通过验证的案例会追加到 `data/question_banks/terminal.jsonl`。
+
+2. 确保 `TerminalScenarioGenerator` 引用了已刷新的问题库（默认路径通常已匹配）。
+
+#### 电信支持种子
+
+1. 生成电信场景的种子（配置见 `configs/casegen.telecom.yaml`）：
+
+   ```bash
+   python scripts/generate_cases.py --config configs/casegen.telecom.yaml
+   ```
+
+   通过验证的案例会写入 `data/question_banks/telecom.jsonl`。
+
+2. `TelecomScenarioGenerator` 默认会读取该问题库。
+
+在刷新问题库之后，再继续标准的蒸馏运行。
 
 ### 快速验证输出
 

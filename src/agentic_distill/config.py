@@ -8,6 +8,8 @@ from typing import Any, Dict, Literal, Optional
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from .utils import deep_merge_dict
+
 
 class ModelEndpointConfig(BaseModel):
     """Defines a single LLM endpoint option."""
@@ -30,6 +32,18 @@ class ModelEndpointConfig(BaseModel):
     request_timeout: float = Field(90.0, gt=0.0)
     retry_attempts: int = Field(6, ge=0)
     weight: float = Field(1.0, gt=0.0, description="Probability weight when sampling endpoints.")
+    completion_path: str = Field(
+        "/chat/completions",
+        description="Relative request path for chat completions.",
+    )
+    request_overrides: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Provider-specific payload overrides merged into every request.",
+    )
+    extra_headers: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Additional HTTP headers sent with each request.",
+    )
 
 
 class EndpointPoolConfig(BaseModel):
@@ -206,6 +220,10 @@ class DistillationConfig(BaseModel):
     metadata: Dict[str, Any] = Field(
         default_factory=dict, description="Arbitrary metadata stored with each trace."
     )
+    model_presets: Dict[str, Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Reusable model configuration snippets referenced via the 'preset' key.",
+    )
 
     @model_validator(mode="after")
     def _check_reviewer_requirements(self) -> DistillationConfig:
@@ -220,5 +238,37 @@ def load_config(path: Path | str) -> DistillationConfig:
     config_path = Path(path)
     with config_path.open("r", encoding="utf-8") as fp:
         raw = yaml.safe_load(fp)
-    return DistillationConfig.model_validate(raw)
+    processed = _apply_model_presets(raw)
+    return DistillationConfig.model_validate(processed)
 
+
+def _apply_model_presets(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """Expand preset references inside endpoint pools."""
+
+    if not isinstance(raw, dict):
+        return raw
+
+    presets = raw.get("model_presets") or {}
+    if not presets:
+        return raw
+
+    for pool_key in ("teacher_pool", "reviewer_pool"):
+        pool = raw.get(pool_key)
+        if not pool:
+            continue
+        endpoints = []
+        for endpoint in pool.get("endpoints", []):
+            endpoint_data = dict(endpoint)
+            preset_name = endpoint_data.pop("preset", None) or endpoint_data.pop("base", None)
+            if preset_name:
+                preset = presets.get(preset_name)
+                if preset is None:
+                    raise ValueError(
+                        f"Endpoint in pool '{pool_key}' references unknown preset '{preset_name}'."
+                    )
+                merged = deep_merge_dict(preset, endpoint_data)
+            else:
+                merged = endpoint_data
+            endpoints.append(merged)
+        pool["endpoints"] = endpoints
+    return raw
