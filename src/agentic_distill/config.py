@@ -102,6 +102,11 @@ class OutputConfig(BaseModel):
     )
     format: str = Field("jsonl", description="Output format: jsonl or parquet.")
     shard_size: int = Field(500, gt=0)
+    target_shard_bytes: int = Field(
+        150 * 1024 * 1024,
+        gt=1024,
+        description="Approximate maximum size (in bytes) for each exported shard.",
+    )
     include_metadata: bool = True
 
     @field_validator("format")

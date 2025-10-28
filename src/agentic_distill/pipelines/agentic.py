@@ -79,6 +79,7 @@ class AgenticDistillationPipeline:
             base_dir=config.output.base_dir,
             format=config.output.format,
             shard_size=config.output.shard_size,
+            target_shard_bytes=config.output.target_shard_bytes,
         )
 
         self.random = random.Random(config.seed)
@@ -271,6 +272,9 @@ class AgenticDistillationPipeline:
             "generation": generation_metadata,
         }
 
+        available_tools = self._normalise_available_tools(sample, metadata)
+        target_tools = self._derive_target_tools(metadata, available_tools)
+
         episode = Episode(
             scenario_id=sample.scenario_id,
             created_at=datetime.utcnow(),
@@ -280,6 +284,8 @@ class AgenticDistillationPipeline:
             tool_invocations=tool_invocations,
             score=validation.score,
             metadata=metadata,
+            available_tools=available_tools,
+            target_tools=target_tools,
         )
         return template.name, episode
 
@@ -299,6 +305,116 @@ class AgenticDistillationPipeline:
             max_output_tokens=endpoint.max_output_tokens,
         )
         return response["choices"][0]["message"]
+
+    def _normalise_available_tools(
+        self,
+        sample: ScenarioSample,
+        metadata: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        tools: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+
+        def add_tool(entry: Dict[str, Any], source: str) -> None:
+            name = entry.get("name")
+            if not name or name in seen:
+                return
+            record: Dict[str, Any] = {"name": name, "source": source}
+            if description := entry.get("description"):
+                record["description"] = description
+            if params := entry.get("parameters"):
+                record["parameters"] = params
+            if categories := entry.get("categories"):
+                record["categories"] = categories
+            if tags := entry.get("tags"):
+                record["tags"] = tags
+            tools.append(record)
+            seen.add(name)
+
+        def iter_entries(value: Any) -> List[Any]:
+            if value is None:
+                return []
+            if isinstance(value, dict):
+                return [value]
+            if isinstance(value, (list, tuple, set)):
+                return list(value)
+            return [value]
+
+        if sample.tools:
+            for tool in sample.tools:
+                if isinstance(tool, dict) and tool.get("type") == "function":
+                    function = tool.get("function", {})
+                    if isinstance(function, dict):
+                        add_tool(function, "scenario.tools")
+
+        for key in ("tool_definitions", "tool_summaries", "selected_tool_details"):
+            for entry in iter_entries(metadata.get(key)):
+                if isinstance(entry, dict):
+                    add_tool(entry, f"metadata.{key}")
+
+        source_case = metadata.get("source_case") or {}
+        for entry in iter_entries(source_case.get("tools")):
+            if isinstance(entry, dict):
+                add_tool(entry, "metadata.source_case.tools")
+
+        return tools
+
+    def _derive_target_tools(
+        self,
+        metadata: Dict[str, Any],
+        available_tools: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        targets: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+        available_lookup = {
+            tool.get("name"): tool for tool in available_tools if tool.get("name")
+        }
+
+        def register(items: Any, source: str) -> None:
+            for item in iter_entries(items):
+                if isinstance(item, dict):
+                    name = item.get("name")
+                    reason = item.get("reason")
+                else:
+                    name = item
+                    reason = None
+                if not name or name in seen:
+                    continue
+                targets.append(
+                    {
+                        "name": name,
+                        "reason": reason or f"Highlighted in {source}.",
+                        "source": source,
+                        "present_in_available_tools": name in available_lookup,
+                    }
+                )
+                seen.add(name)
+
+        register(metadata.get("tool_focus") or [], "metadata.tool_focus")
+        register(metadata.get("recommended_tools") or [], "metadata.recommended_tools")
+        register(
+            metadata.get("metadata_overrides", {}).get("target_tools") or [],
+            "metadata.metadata_overrides.target_tools",
+        )
+
+        source_case = metadata.get("source_case") or {}
+        register(source_case.get("required_tools") or [], "metadata.source_case.required_tools")
+
+        if not targets:
+            for tool in available_tools:
+                name = tool.get("name")
+                if not name or name in seen:
+                    continue
+                targets.append(
+                    {
+                        "name": name,
+                        "reason": "No explicit targets provided; defaulting to all available tools.",
+                        "source": "inferred",
+                        "present_in_available_tools": True,
+                    }
+                )
+                seen.add(name)
+
+        return targets
 
     def _record_tool_calls(
         self,

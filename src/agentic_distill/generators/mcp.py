@@ -230,10 +230,14 @@ class MCPScenarioGenerator(ScenarioGenerator):
             },
             "tool_names": [tool["name"] for tool in descriptor.tool_summaries],
             "tool_focus": [tool["name"] for tool in selected_tools],
+            "tool_summaries": descriptor.tool_summaries,
+            "selected_tool_details": selected_tools,
             "target_benchmark": benchmark_target,
             "small_model_candidates": small_models,
             "mission": mission_fragment,
             "python_sdk_snippet": descriptor.python_sdk_snippet,
+            "analysis": descriptor.analysis,
+            "overview": descriptor.overview,
         }
 
         scenario_id = f"mcp/{descriptor.slug}-{self.random.randrange(1_000_000)}"
