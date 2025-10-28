@@ -121,6 +121,15 @@ class TerminalScenarioGenerator(ScenarioGenerator):
             "constraints": constraints,
             "telemetry_clues": telemetry_clues,
             "metadata_overrides": metadata_block,
+            "tool_definitions": [
+                {
+                    "name": tool["function"]["name"],
+                    "description": tool["function"].get("description", ""),
+                    "parameters": tool["function"].get("parameters", {}),
+                }
+                for tool in self._tools
+                if tool.get("type") == "function" and tool.get("function")
+            ],
         }
 
         return ScenarioSample(
