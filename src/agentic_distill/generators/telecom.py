@@ -1,78 +1,40 @@
-"""Telecom customer support scenario generator inspired by agentic benchmarks."""
+"""Telecom customer support scenario generator backed by a question bank."""
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from .base import ScenarioGenerator, ScenarioSample, ValidationResult
-
-
-CASES = [
-    {
-        "issue": "Customer reports intermittent packet loss during video calls.",
-        "customer_tier": "enterprise",
-        "recent_changes": ["Core router firmware upgrade", "Traffic shaping policy tweak"],
-        "tools": ["look_up_account", "query_noc_dashboard", "generate_remedy_ticket"],
-    },
-    {
-        "issue": "Billing dispute for roaming charges exceeding plan limits.",
-        "customer_tier": "postpaid",
-        "recent_changes": ["International roaming plan activation"],
-        "tools": ["look_up_account", "adjust_invoice", "summarize_policy"],
-    },
-    {
-        "issue": "5G small-cell outage affecting downtown sector.",
-        "customer_tier": "municipal",
-        "recent_changes": ["Power maintenance", "Backhaul reroute"],
-        "tools": ["query_noc_dashboard", "dispatch_field_team", "notify_stakeholders"],
-    },
-    {
-        "issue": "IoT fleet experiencing SIM authentication failures after a core network upgrade.",
-        "customer_tier": "industrial",
-        "recent_changes": ["Core HSS patch deployment", "New APN provisioning"],
-        "tools": ["look_up_account", "query_noc_dashboard", "simulate_attach"],
-    },
-    {
-        "issue": "VIP enterprise is seeing degraded SLA on MPLS circuits during peak hours.",
-        "customer_tier": "strategic-enterprise",
-        "recent_changes": ["Capacity rebalancing", "QoS policy adjustments"],
-        "tools": ["query_capacity", "generate_exec_update", "dispatch_field_team"],
-    },
-    {
-        "issue": "Fiber break suspected on a metro ring following severe weather.",
-        "customer_tier": "broadband-residential",
-        "recent_changes": ["Maintenance window notifications"],
-        "tools": ["dispatch_field_team", "notify_stakeholders", "query_noc_dashboard"],
-    },
-    {
-        "issue": "Contact center escalations about failed eSIM activations on premium devices.",
-        "customer_tier": "premium-postpaid",
-        "recent_changes": ["Digital onboarding workflow update", "New handset launch"],
-        "tools": ["look_up_account", "simulate_activation", "summarize_policy"],
-    },
-]
+from ..question_bank import QuestionBank
 
 
 class TelecomScenarioGenerator(ScenarioGenerator):
     """Produces multi-step customer support flows with tool interactions."""
 
-    def sample(self) -> ScenarioSample:
-        case = self.random.choice(CASES)
-        scenario_id = f"telecom/{self.random.randrange(1_000_000)}"
+    def __init__(
+        self,
+        *,
+        question_bank_path: Optional[str] = None,
+        seed: Optional[int] = None,
+        **params: Any,
+    ):
+        super().__init__(seed=seed, **params)
+        default_path = Path(question_bank_path) if question_bank_path else Path("data/question_banks/telecom.jsonl")
+        try:
+            self.question_bank = QuestionBank(default_path, seed=seed)
+        except FileNotFoundError as exc:
+            raise FileNotFoundError(
+                f"Question bank not found at {default_path}. "
+                "Run `python scripts/generate_cases.py --config configs/casegen.telecom.yaml` first."
+            ) from exc
+        except ValueError as exc:
+            raise ValueError(
+                f"Question bank at {default_path} is empty. Generate fresh cases before distillation."
+            ) from exc
 
-        system_prompt = (
-            "You are a senior telecom support agent coordinating across billing, NOC, and field teams. "
-            "Gather facts methodically, call tools to inspect systems, and output a clear resolution plan. "
-            "Deliver most of your reasoning in English, adding concise Chinese bullet recaps for stakeholder communication."
-        )
-        user_prompt = (
-            f"Issue: {case['issue']}\n"
-            f"Customer tier: {case['customer_tier']}\n"
-            f"Recent changes: {', '.join(case['recent_changes'])}\n"
-            "Deliverables: 1) diagnostic summary, 2) immediate remediation steps, 3) communication plan.\n"
-            "Language expectations: English primary narrative, optional supporting Chinese bullet points."
-        )
-        tools = [
+        # Precompute static tool schema used for tool-call style plans
+        self._tools = [
             {
                 "type": "function",
                 "function": {
@@ -90,17 +52,77 @@ class TelecomScenarioGenerator(ScenarioGenerator):
             }
         ]
 
+    def sample(self) -> ScenarioSample:
+        case = self.question_bank.sample()
+        issue = case.get("issue", "Undiagnosed telecom escalation")
+        customer_tier = case.get("customer_tier", "unspecified tier")
+        region = case.get("region")
+        symptoms = case.get("symptoms") or case.get("symptom_highlights") or []
+        recent_changes = case.get("recent_changes") or []
+        objectives = (
+            case.get("resolution_objectives")
+            or case.get("objectives")
+            or ["Restore service stability", "Communicate status to stakeholders"]
+        )
+        risk_level = case.get("risk_level", "medium")
+        evaluation_focus = case.get("evaluation_focus") or case.get("quality_gates") or []
+        recommended_tools = case.get("tools") or case.get("recommended_tools") or []
+        telemetry = case.get("telemetry_context")
+
+        scenario_id = f"telecom/{case.get('id') or case.get('uid') or self.random.randrange(1_000_000)}"
+
+        system_prompt = (
+            "You are a senior telecom support agent coordinating across billing, NOC, and field teams. "
+            "Gather facts methodically, call tools to inspect systems, and output a clear resolution plan. "
+            "Deliver most of your reasoning in English, adding concise Chinese bullet recaps for stakeholder communication."
+        )
+
+        lines = [
+            f"Issue: {issue}",
+            f"Customer tier: {customer_tier}",
+        ]
+        if region:
+            lines.append(f"Region: {region}")
+        if symptoms:
+            lines.append(f"Primary symptoms: {', '.join(symptoms)}")
+        if recent_changes:
+            lines.append(f"Recent changes: {', '.join(recent_changes)}")
+        if telemetry:
+            lines.append(f"Telemetry hints: {telemetry}")
+        if recommended_tools:
+            lines.append(f"Candidate tools: {', '.join(recommended_tools)}")
+        lines.append(f"Risk level: {risk_level}")
+        lines.append("Resolution objectives:")
+        for objective in objectives:
+            lines.append(f"  - {objective}")
+        if evaluation_focus:
+            lines.append("Evaluation focus areas:")
+            for item in evaluation_focus:
+                lines.append(f"  - {item}")
+
+        deliverables = (
+            "Deliverables:\n"
+            "1. Diagnostic summary covering root-cause hypotheses and ruled-out factors.\n"
+            "2. Immediate remediation steps including tool invocation rationale and fallback options.\n"
+            "3. Communication plan tailored by stakeholder (Ops lead, account team, customer-facing comms).\n"
+            "4. 中文要点: concise Chinese bullet recap of the recovery plan.\n"
+            "5. Metadata JSON with keys `scenario_type`, `risk_level`, `telemetry_needed`, `recommended_tools`."
+        )
+
+        user_prompt = "\n".join(lines + ["", deliverables])
+
         metadata = {
             "benchmark": "telecom-agent",
-            "recommended_tools": case["tools"],
-            "language_policy": "en-primary zh-secondary",
+            "recommended_tools": recommended_tools,
+            "language_policy": case.get("language_policy", "en-primary zh-secondary"),
+            "source_case": case,
         }
 
         return ScenarioSample(
             scenario_id=scenario_id,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
-            tools=tools,
+            tools=self._tools,
             metadata=metadata,
         )
 
@@ -126,7 +148,19 @@ class TelecomScenarioGenerator(ScenarioGenerator):
             call.get("function", {}).get("name") in metadata.get("recommended_tools", [])
             for call in tool_calls
         )
-        score = 0.5 * coverage + 0.5 * (1.0 if used_recommended else 0.0)
+        includes_metadata_json = '"scenario_type"' in final_answer and '"recommended_tools"' in final_answer
+        includes_chinese = any("\u4e00" <= char <= "\u9fff" for char in assistant_messages[-1].get("content", ""))
 
-        feedback = "Strong telecom troubleshooting narrative" if score >= 0.7 else "Expand tool usage or structure."
-        return ValidationResult(score=score, feedback=feedback, require_retry=score < 0.4)
+        score_components = [
+            coverage,
+            1.0 if used_recommended else 0.0,
+            1.0 if includes_metadata_json else 0.0,
+            1.0 if includes_chinese else 0.0,
+        ]
+        score = sum(score_components) / len(score_components)
+
+        feedback = "Comprehensive telecom playbook with metadata."
+        if score < 0.75:
+            feedback = "Ensure diagnostic/remediation/communication sections, metadata JSON, and Chinese recap."
+
+        return ValidationResult(score=score, feedback=feedback, require_retry=score < 0.5)

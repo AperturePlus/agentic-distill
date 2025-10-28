@@ -250,6 +250,27 @@ class AgenticDistillationPipeline:
                 )
                 return template.name, None
 
+        generation_metadata = {
+            "run_name": self.config.run_name,
+            "teacher": {
+                "endpoint": teacher_endpoint.name,
+                "provider": teacher_endpoint.provider,
+                "model": teacher_endpoint.model,
+                "temperature": teacher_endpoint.temperature,
+                "top_p": teacher_endpoint.top_p,
+                "max_output_tokens": teacher_endpoint.max_output_tokens,
+            },
+            "review": review_records,
+            "reflection_passes": self.config.reflection.passes if self.config.reflection.enabled else 0,
+            "seed": self.config.seed,
+        }
+
+        metadata = {
+            **(sample.metadata or {}),
+            "validation_feedback": validation.feedback,
+            "generation": generation_metadata,
+        }
+
         episode = Episode(
             scenario_id=sample.scenario_id,
             created_at=datetime.utcnow(),
@@ -258,13 +279,7 @@ class AgenticDistillationPipeline:
             messages=[self._to_message(msg) for msg in conversation],
             tool_invocations=tool_invocations,
             score=validation.score,
-            metadata={
-                **(sample.metadata or {}),
-                "feedback": validation.feedback,
-                "teacher_endpoint": teacher_endpoint.name,
-                "review_feedback": review_records,
-                "run_name": self.config.run_name,
-            },
+            metadata=metadata,
         )
         return template.name, episode
 
@@ -371,6 +386,9 @@ class AgenticDistillationPipeline:
             review_record = {
                 "round": round_index,
                 "reviewer_endpoint": reviewer_endpoint.name,
+                "reviewer_model": reviewer_endpoint.model,
+                "reviewer_provider": reviewer_endpoint.provider,
+                "reviewer_temperature": reviewer_endpoint.temperature,
                 "score": feedback.score,
                 "needs_revision": feedback.needs_revision,
                 "feedback": feedback.feedback,
@@ -481,4 +499,3 @@ class AgenticDistillationPipeline:
             tool_calls=data.get("tool_calls"),
             tool_call_id=data.get("tool_call_id"),
         )
-

@@ -7,6 +7,7 @@ Use this checklist to maintain dataset quality while running the distillation lo
 - [ ] Teacher and reviewer API keys exported (`TEACHER_API_KEY`, `REVIEWER_API_KEY`, etc.).
 - [ ] Configured `teacher_pool` / `reviewer_pool` reflect desired weighting and preferred order.
 - [ ] Scenario configuration reviewed: target episodes, quotas, seeds, and language policy.
+- [ ] If using terminal or telecom scenarios, regenerate `data/question_banks/terminal.jsonl` / `data/question_banks/telecom.jsonl` with `scripts/generate_cases.py` before distillation.
 - [ ] Concurrency level sized to API rate limits and budget.
 - [ ] Optional tool handler connected if executing real commands/APIs.
 
@@ -24,6 +25,7 @@ Use this checklist to maintain dataset quality while running the distillation lo
   head -n 1 data/exports/terminal/shard-00000.jsonl | jq .
   ```
 - [ ] Confirm language mix: English narrative with concise Chinese summaries only.
+- [ ] Validate `metadata.generation` contains teacher/reviewer model names and that MCP scenarios expose `metadata.source_server`.
 - [ ] Review reviewer scores versus scenario validation scores for drift.
 - [ ] Spot check episodes for hallucinations and red-team failure cases.
 - [ ] Version the config file used for the run alongside generated shards metadata.

@@ -31,6 +31,7 @@ flowchart LR
 - **Reviewer Refinement:** A second model scores each trace, drives auto-refinement, and enforces strict acceptance thresholds.
 - **Language Guardrails:** Global prompts ensure outputs stay primarily in English with succinct Chinese summaries when useful.
 - **Parallelised Sampling:** Configurable thread pools keep several scenarios distilling simultaneously for higher throughput.
+- **MCP Scenario Library:** Dozens of MCP server dossiers are sampled to generate integration blueprints and prompt-engineering workflows, expanding coverage beyond terminal and telecom domains.
 - **Extensible Storage:** Pluggable sinks for JSONL (default), Parquet, or direct uploads to object stores.
 - **Benchmark Hooks:** Predefined scenario families inspired by TerminalBench, T^2 Bench, and telecom support flows, ready for expansion.
 
@@ -41,7 +42,7 @@ flowchart LR
    pip install -e .
    ```
 2. Configure your teacher/reviewer pools (see `configs/teacher.example.yaml` for structure).
-3. Define a scenario mix and run settings (see `configs/run.terminal.yaml`).
+3. Define a scenario mix and run settings (see `configs/run.terminal.yaml`, `configs/run.telecom.yaml`, or `configs/run.mcp.yaml`).
 4. Run the distillation loop:
    ```bash
    python scripts/run_distillation.py --config configs/run.terminal.yaml
@@ -56,7 +57,27 @@ The script will produce JSONL shards under `data/exports/` containing fully vali
 - `prompts` injects consistent guidance for teachers and reviewers, including the English-first + Chinese recap requirement.
 - `concurrency.max_workers` controls how many scenarios run in parallel; tune it to match your API throughput budget.
 - Each scenario template can pin custom parameters while inheriting the global language and quality guardrails.
+- MCP integration scenarios (`agentic_distill.generators.mcp:MCPScenarioGenerator`) automatically ingest MCP server JSON dossiers and emit rich metadata about the chosen server, mission, and tool focus.
 
+### Preparing Question Banks
+
+**Terminal (SRE) seeds**
+1. Generate seeds with the strongest teacher model (`configs/casegen.terminal.yaml`).
+   ```bash
+   python scripts/generate_cases.py --config configs/casegen.terminal.yaml
+   ```
+   Accepted cases are appended to `data/question_banks/terminal.jsonl`.
+2. Ensure `TerminalScenarioGenerator` references the refreshed bank (default path already matches).
+
+**Telecom support seeds**
+1. Generate seeds (`configs/casegen.telecom.yaml`).
+   ```bash
+   python scripts/generate_cases.py --config configs/casegen.telecom.yaml
+   ```
+   Accepted cases land in `data/question_banks/telecom.jsonl`.
+2. `TelecomScenarioGenerator` reads the same bank by default.
+
+After banks are refreshed, proceed with the standard distillation run.
 ### Verifying Output Quickly
 
 - Peek at the first few samples:
@@ -66,6 +87,36 @@ The script will produce JSONL shards under `data/exports/` containing fully vali
 - Confirm scenario coverage, reviewer acceptance rates, and discard reasons via logs emitted during the run.
 - Ensure the language mix meets expectations (English narratives with optional Chinese recaps).
 - Use the QA checklist (`docs/qa_checklist.md`) after each batch.
+
+### Metadata At A Glance
+
+Every episode now stores structured generation metadata under `metadata.generation`, e.g.:
+
+```json
+{
+  "generation": {
+    "run_name": "mcp-batch-001",
+    "teacher": {
+      "endpoint": "frontier-default",
+      "provider": "openai",
+      "model": "gpt-4.1",
+      "temperature": 0.16,
+      "top_p": 0.9,
+      "max_output_tokens": 3584
+    },
+    "review": [
+      {"round": 0, "reviewer_endpoint": "reviewer-judge", "reviewer_model": "gpt-4.1-mini", "score": 0.92, "...": "..."}
+    ],
+    "reflection_passes": 2,
+    "seed": 1234
+  },
+  "scenario_type": "mcp_integration",
+  "language_policy": "en-primary zh-secondary",
+  "validation_feedback": "Balanced tool analysis with metadata block."
+}
+```
+
+Use this block to track which models generated or reviewed each trace and to filter by scenario type or language policy.
 
 ## Repository Layout
 

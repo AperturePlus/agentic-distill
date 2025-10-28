@@ -12,6 +12,7 @@ venv/
 
 # Project outputs
 data/exports/
+data/question_banks/
 logs/
 
 # OS Artifacts

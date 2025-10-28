@@ -74,6 +74,36 @@ head -n 2 data/exports/terminal/shard-00000.jsonl | jq .
 - 确认语言混合是否符合预期（以英文叙述为主，必要时有中文简要回顾）。
 - 每批次之后，使用 QA checklist（`docs/qa_checklist.md`）进行人工/自动抽查。
 
+### 元数据一览
+
+每个回合（episode）现在在 `metadata.generation` 下存储了结构化的生成元数据，示例如下：
+
+```json
+{
+   "generation": {
+      "run_name": "mcp-batch-001",
+      "teacher": {
+         "endpoint": "frontier-default",
+         "provider": "openai",
+         "model": "gpt-4.1",
+         "temperature": 0.16,
+         "top_p": 0.9,
+         "max_output_tokens": 3584
+      },
+      "review": [
+         {"round": 0, "reviewer_endpoint": "reviewer-judge", "reviewer_model": "gpt-4.1-mini", "score": 0.92}
+      ],
+      "reflection_passes": 2,
+      "seed": 1234
+   },
+   "scenario_type": "mcp_integration",
+   "language_policy": "en-primary zh-secondary",
+   "validation_feedback": "Balanced tool analysis with metadata block."
+}
+```
+
+使用该元数据块可追踪哪个模型生成或审核了每条轨迹，并可按场景类型或语言策略进行过滤。
+
 ## 仓库结构
 
 - `src/agentic_distill/` - 框架核心模块的 Python 包。
