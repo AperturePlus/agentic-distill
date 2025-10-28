@@ -55,6 +55,11 @@ class Episode:
                     "content": msg.content,
                     **({"name": msg.name} if msg.name else {}),
                     **({"tool_calls": msg.tool_calls} if msg.tool_calls else {}),
+                    **(
+                        {"tool_call_id": msg.tool_call_id}
+                        if msg.tool_call_id is not None
+                        else {}
+                    ),
                 }
                 for msg in self.messages
             ],
