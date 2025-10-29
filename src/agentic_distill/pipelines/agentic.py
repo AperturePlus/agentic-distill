@@ -43,14 +43,18 @@ class EndpointSelector:
     def select(self) -> ModelEndpointConfig:
         if self.pool.preferred_order:
             for _ in range(len(self.pool.preferred_order)):
-                name = self.pool.preferred_order[self._preferred_index % len(self.pool.preferred_order)]
+                name = self.pool.preferred_order[
+                    self._preferred_index % len(self.pool.preferred_order)
+                ]
                 self._preferred_index += 1
                 endpoint = self._lookup.get(name)
                 if endpoint is not None:
                     return endpoint
 
         if self.pool.selection_strategy == "round_robin":
-            endpoint = self.pool.endpoints[self._round_robin_index % len(self.pool.endpoints)]
+            endpoint = self.pool.endpoints[
+                self._round_robin_index % len(self.pool.endpoints)
+            ]
             self._round_robin_index += 1
             return endpoint
 
@@ -89,31 +93,43 @@ class AgenticDistillationPipeline:
 
         self.teacher_selector = EndpointSelector(config.teacher_pool, seed=config.seed)
         self.teacher_clients = {
-            endpoint.name: TeacherClient(endpoint) for endpoint in config.teacher_pool.endpoints
+            endpoint.name: TeacherClient(endpoint)
+            for endpoint in config.teacher_pool.endpoints
         }
 
         self.reviewer_selector: Optional[EndpointSelector] = None
         self.reviewer_clients: Dict[str, TeacherClient] = {}
         if config.review_flow.enabled and config.reviewer_pool:
-            self.reviewer_selector = EndpointSelector(config.reviewer_pool, seed=(config.seed or 0) + 1)
+            self.reviewer_selector = EndpointSelector(
+                config.reviewer_pool, seed=(config.seed or 0) + 1
+            )
             self.reviewer_clients = {
-                endpoint.name: TeacherClient(endpoint) for endpoint in config.reviewer_pool.endpoints
+                endpoint.name: TeacherClient(endpoint)
+                for endpoint in config.reviewer_pool.endpoints
             }
 
-        self._progress_state: Dict[str, int] = {template.name: 0 for template in config.scenarios}
-        self._targets = {template.name: template.target_episodes for template in config.scenarios}
+        self._progress_state: Dict[str, int] = {
+            template.name: 0 for template in config.scenarios
+        }
+        self._targets = {
+            template.name: template.target_episodes for template in config.scenarios
+        }
 
     def run(self) -> Dict[str, int]:
         """Execute the distillation loop until all scenario quotas are satisfied."""
 
         with Progress(console=self.console) as progress:
             task_ids: Dict[str, TaskID] = {
-                template.name: progress.add_task(f"[cyan]{template.name}", total=template.target_episodes)
+                template.name: progress.add_task(
+                    f"[cyan]{template.name}", total=template.target_episodes
+                )
                 for template in self.config.scenarios
             }
 
             try:
-                with ThreadPoolExecutor(max_workers=self.config.concurrency.max_workers) as executor:
+                with ThreadPoolExecutor(
+                    max_workers=self.config.concurrency.max_workers
+                ) as executor:
                     inflight: set[Future[Tuple[str, Optional[Episode]]]] = set()
 
                     while inflight or not self._targets_reached():
@@ -140,7 +156,9 @@ class AgenticDistillationPipeline:
                                 time.sleep(1.0)
                                 continue
                             except Exception as exc:  # noqa: BLE001
-                                self.console.log(f"[red]Unexpected error in worker: {exc}")
+                                self.console.log(
+                                    f"[red]Unexpected error in worker: {exc}"
+                                )
                                 continue
 
                             if episode is None:
@@ -155,11 +173,17 @@ class AgenticDistillationPipeline:
 
         return self._progress_state
 
-    def _instantiate_generators(self, templates: Iterable[ScenarioTemplate]) -> Dict[str, ScenarioGenerator]:
+    def _instantiate_generators(
+        self, templates: Iterable[ScenarioTemplate]
+    ) -> Dict[str, ScenarioGenerator]:
         generators: Dict[str, ScenarioGenerator] = {}
         for index, template in enumerate(templates):
             factory = import_from_path(template.generator)
-            seed = (self.config.seed or 0) + index if self.config.seed is not None else None
+            seed = (
+                (self.config.seed or 0) + index
+                if self.config.seed is not None
+                else None
+            )
             generators[template.name] = factory(seed=seed, **template.params)
         return generators
 
@@ -186,7 +210,9 @@ class AgenticDistillationPipeline:
                 return template
         return remaining[-1]
 
-    def _produce_episode(self, template: ScenarioTemplate) -> Tuple[str, Optional[Episode]]:
+    def _produce_episode(
+        self, template: ScenarioTemplate
+    ) -> Tuple[str, Optional[Episode]]:
         generator = self.generators[template.name]
         with self.generator_locks[template.name]:
             sample = generator.sample()
@@ -222,7 +248,9 @@ class AgenticDistillationPipeline:
                     tools=sample.tools,
                 )
                 conversation.append(reflection_message)
-                self._record_tool_calls(reflection_message, tool_invocations, conversation)
+                self._record_tool_calls(
+                    reflection_message, tool_invocations, conversation
+                )
 
         review_records = self._maybe_run_review_cycle(
             conversation=conversation,
@@ -233,7 +261,10 @@ class AgenticDistillationPipeline:
         )
 
         validation = generator.validate(conversation[2:], sample.metadata or {})
-        if validation.require_retry or validation.score < self.config.validation.min_score:
+        if (
+            validation.require_retry
+            or validation.score < self.config.validation.min_score
+        ):
             self.console.log(
                 f"[yellow]Discarding episode {sample.scenario_id} "
                 f"(score={validation.score:.2f}, feedback={validation.feedback})"
@@ -264,7 +295,9 @@ class AgenticDistillationPipeline:
                 "max_output_tokens": teacher_endpoint.max_output_tokens,
             },
             "review": review_records,
-            "reflection_passes": self.config.reflection.passes if self.config.reflection.enabled else 0,
+            "reflection_passes": (
+                self.config.reflection.passes if self.config.reflection.enabled else 0
+            ),
             "seed": self.config.seed,
         }
 
@@ -390,7 +423,10 @@ class AgenticDistillationPipeline:
         )
 
         source_case = metadata.get("source_case") or {}
-        register(source_case.get("required_tools") or [], "metadata.source_case.required_tools")
+        register(
+            source_case.get("required_tools") or [],
+            "metadata.source_case.required_tools",
+        )
 
         if not targets:
             for tool in available_tools:
@@ -480,7 +516,9 @@ class AgenticDistillationPipeline:
                 {"role": "system", "content": self.config.prompts.reviewer_template},
                 {
                     "role": "user",
-                    "content": self._build_reviewer_prompt(conversation, sample, round_index),
+                    "content": self._build_reviewer_prompt(
+                        conversation, sample, round_index
+                    ),
                 },
             ]
 
@@ -545,7 +583,9 @@ class AgenticDistillationPipeline:
                 "and ensure mitigation guidance is actionable. Provide both English reasoning and a short Chinese recap."
             ),
         }
-        base_prompt = styles.get(self.config.reflection.critique_style, styles["default"])
+        base_prompt = styles.get(
+            self.config.reflection.critique_style, styles["default"]
+        )
         return f"Reflection pass {pass_index + 1}: {base_prompt}"
 
     def _build_reviewer_prompt(
@@ -577,11 +617,17 @@ class AgenticDistillationPipeline:
 
     @staticmethod
     def _format_feedback_for_revision(feedback: ReviewFeedback) -> str:
-        chinese = f"\n中文摘要: {feedback.chinese_summary}" if feedback.chinese_summary else ""
+        chinese = (
+            f"\n中文摘要: {feedback.chinese_summary}"
+            if feedback.chinese_summary
+            else ""
+        )
         return f"{feedback.feedback}{chinese}"
 
     @staticmethod
-    def _targets_reached_static(progress: Dict[str, int], targets: Dict[str, int]) -> bool:
+    def _targets_reached_static(
+        progress: Dict[str, int], targets: Dict[str, int]
+    ) -> bool:
         return all(progress[name] >= targets[name] for name in targets)
 
     def _targets_reached(self) -> bool:

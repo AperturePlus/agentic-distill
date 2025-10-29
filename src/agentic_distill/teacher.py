@@ -6,7 +6,12 @@ import os
 from typing import Any, Dict, Iterable, Optional
 
 import httpx
-from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import (
+    Retrying,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from .config import ModelEndpointConfig
 from .utils import deep_merge_dict
@@ -81,13 +86,15 @@ class TeacherClient:
             payload: Dict[str, Any] = {
                 "model": self.config.model,
                 "messages": messages_list,
-                "temperature": temperature
-                if temperature is not None
-                else self.config.temperature,
+                "temperature": (
+                    temperature if temperature is not None else self.config.temperature
+                ),
                 "top_p": top_p if top_p is not None else self.config.top_p,
-                "max_tokens": max_output_tokens
-                if max_output_tokens is not None
-                else self.config.max_output_tokens,
+                "max_tokens": (
+                    max_output_tokens
+                    if max_output_tokens is not None
+                    else self.config.max_output_tokens
+                ),
             }
             if tools_list:
                 payload["tools"] = tools_list

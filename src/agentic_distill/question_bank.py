@@ -53,7 +53,12 @@ class QuestionBank:
                     data = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                uid = str(data.get("id") or data.get("uid") or data.get("issue") or len(entries))
+                uid = str(
+                    data.get("id")
+                    or data.get("uid")
+                    or data.get("issue")
+                    or len(entries)
+                )
                 entries.append(QuestionBankEntry(uid=uid, payload=data))
         return entries
 
@@ -65,7 +70,7 @@ class QuestionBank:
 
     def sample(self) -> Dict[str, Any]:
         """Return a unique entry; reshuffle when exhausted.
-        
+
         Optimized to use set-based operations for O(1) removal
         instead of list removal which is O(n).
         """
@@ -93,6 +98,7 @@ class QuestionBank:
     def preview(self, count: int = 3) -> List[Dict[str, Any]]:
         """Return a small list of entries for inspection."""
 
-        indices = self._random.sample(range(len(self._entries)), k=min(count, len(self._entries)))
+        indices = self._random.sample(
+            range(len(self._entries)), k=min(count, len(self._entries))
+        )
         return [self._entries[idx].payload for idx in indices]
-

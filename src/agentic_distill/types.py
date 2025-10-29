@@ -49,7 +49,7 @@ class Episode:
 
     def to_serializable(self) -> Dict[str, Any]:
         """Convert to a JSON-serializable dictionary.
-        
+
         Optimized to minimize deepcopy operations by building new structures
         directly rather than copying and modifying existing ones.
         """
@@ -112,7 +112,9 @@ class Episode:
                 continue
             entry = {
                 "name": name,
-                "reason": raw.get("reason", "Highlighted as a target tool by the scenario metadata."),
+                "reason": raw.get(
+                    "reason", "Highlighted as a target tool by the scenario metadata."
+                ),
                 "source": raw.get("source", "unspecified"),
                 "present_in_available_tools": bool(name in available_names),
             }
@@ -165,7 +167,11 @@ class Episode:
                         "name": tool.name,
                         "arguments": tool.arguments,
                         **({"output": tool.output} if tool.output is not None else {}),
-                        **({"success": tool.success} if tool.success is not None else {}),
+                        **(
+                            {"success": tool.success}
+                            if tool.success is not None
+                            else {}
+                        ),
                     }
                     for tool in self.tool_invocations
                 ],
@@ -208,14 +214,18 @@ class Episode:
                     content_type = str(item.get("type", "")).lower()
                     if content_type in {"thinking", "reasoning", "thought"}:
                         continue
-                    text_value = item.get("text") or item.get("content") or item.get("value")
+                    text_value = (
+                        item.get("text") or item.get("content") or item.get("value")
+                    )
                     if isinstance(text_value, str):
                         candidate = text_value.strip()
                         if candidate:
                             parts.append(candidate)
             return "\n".join(parts).strip()
         if isinstance(content, dict):
-            text_value = content.get("text") or content.get("content") or content.get("value")
+            text_value = (
+                content.get("text") or content.get("content") or content.get("value")
+            )
             if isinstance(text_value, str):
                 return text_value.strip()
         return ""
@@ -245,7 +255,11 @@ class Episode:
 
         if isinstance(message.content, list):
             for item in message.content:
-                if isinstance(item, dict) and item.get("type") in {"thinking", "reasoning", "thought"}:
+                if isinstance(item, dict) and item.get("type") in {
+                    "thinking",
+                    "reasoning",
+                    "thought",
+                }:
                     _add(item)
 
         return segments
@@ -407,7 +421,7 @@ class Episode:
         # Use list to maintain insertion order for subsets
         subsets: List[str] = []
         seen: set[str] = set()
-        
+
         # Single pass over messages to count turns
         assistant_turns = 0
         user_turns = 0
@@ -416,7 +430,7 @@ class Episode:
                 assistant_turns += 1
             elif msg.role == "user":
                 user_turns += 1
-        
+
         tool_count = len(self.tool_invocations)
         reflection_passes = metadata.get("generation", {}).get("reflection_passes", 0)
 
@@ -439,7 +453,12 @@ class Episode:
                 subsets.append(tag)
                 seen.add(tag)
 
-        if assistant_turns <= 1 and user_turns <= 1 and not tool_count and not reflection_passes_int:
+        if (
+            assistant_turns <= 1
+            and user_turns <= 1
+            and not tool_count
+            and not reflection_passes_int
+        ):
             _add("single_turn")
         else:
             _add("multi_turn")
@@ -450,12 +469,10 @@ class Episode:
         if reflection_passes_int:
             _add("reflection")
 
-        teacher_mode = (
-            metadata.get("generation", {})
-            .get("teacher", {})
-            .get("mode")
-        )
-        if isinstance(teacher_mode, str) and teacher_mode.lower().startswith("thinking"):
+        teacher_mode = metadata.get("generation", {}).get("teacher", {}).get("mode")
+        if isinstance(teacher_mode, str) and teacher_mode.lower().startswith(
+            "thinking"
+        ):
             _add("thinking_model")
 
         scenario_type = metadata.get("scenario_type")
@@ -500,7 +517,9 @@ class Episode:
             }
         else:
             tool_count = len([name for name in available_tool_names if name])
-            inferred_level = "high" if tool_count >= 5 else "medium" if tool_count >= 2 else "low"
+            inferred_level = (
+                "high" if tool_count >= 5 else "medium" if tool_count >= 2 else "low"
+            )
             assessments["difficulty"] = {
                 "value": inferred_level,
                 "reason": (
@@ -543,14 +562,20 @@ class Episode:
             label_summary = ", ".join(source_server.get("secondary_labels", []) or [])
             reason_parts = []
             if server_name:
-                reason_parts.append(f"Server '{server_name}' drives the scenario focus.")
+                reason_parts.append(
+                    f"Server '{server_name}' drives the scenario focus."
+                )
             if primary_label:
                 reason_parts.append(f"Primary label: {primary_label}.")
             if label_summary:
                 reason_parts.append(f"Secondary labels: {label_summary}.")
             assessments["domain_relevance"] = {
                 "value": primary_label or "unspecified",
-                "reason": " ".join(reason_parts) if reason_parts else "Derived from MCP metadata.",
+                "reason": (
+                    " ".join(reason_parts)
+                    if reason_parts
+                    else "Derived from MCP metadata."
+                ),
             }
         elif metadata.get("scenario_type"):
             scenario_type = metadata["scenario_type"]
@@ -570,7 +595,9 @@ class Episode:
         assessments: Dict[str, Dict[str, Any]] = {}
 
         score = self.score if self.score is not None else 0.0
-        feedback = metadata.get("validation_feedback") or "No validation feedback recorded."
+        feedback = (
+            metadata.get("validation_feedback") or "No validation feedback recorded."
+        )
         assessments["quality"] = {
             "value": round(score, 3),
             "reason": f"Validation scored {score:.2f}. {feedback}",
@@ -615,19 +642,23 @@ class Episode:
         if "zh" in language_policy.lower():
             if contains_chinese and contains_ascii_letters:
                 compliance_value = "pass"
-                compliance_reason = (
-                    "Answer includes both English reasoning and Chinese recap as required."
-                )
+                compliance_reason = "Answer includes both English reasoning and Chinese recap as required."
             elif contains_chinese:
                 compliance_value = "partial"
-                compliance_reason = "Chinese recap present but English coverage appears limited."
+                compliance_reason = (
+                    "Chinese recap present but English coverage appears limited."
+                )
             else:
                 compliance_value = "partial"
-                compliance_reason = "Chinese recap missing despite language policy expectations."
+                compliance_reason = (
+                    "Chinese recap missing despite language policy expectations."
+                )
         else:
             compliance_value = "pass" if contains_ascii_letters else "partial"
             compliance_reason = (
-                "English narrative detected." if contains_ascii_letters else "English narrative missing."
+                "English narrative detected."
+                if contains_ascii_letters
+                else "English narrative missing."
             )
         assessments["language_compliance"] = {
             "value": compliance_value,
@@ -638,7 +669,9 @@ class Episode:
         if reviews:
             final_review = reviews[-1]
             review_score = round(float(final_review.get("score", 0.0)), 3)
-            reviewer = final_review.get("reviewer_endpoint") or final_review.get("reviewer_model")
+            reviewer = final_review.get("reviewer_endpoint") or final_review.get(
+                "reviewer_model"
+            )
             needs_revision = final_review.get("needs_revision")
             assessments["review_alignment"] = {
                 "value": review_score,
