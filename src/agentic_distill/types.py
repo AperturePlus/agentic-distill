@@ -48,8 +48,13 @@ class Episode:
     target_tools: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_serializable(self) -> Dict[str, Any]:
-        """Convert to a JSON-serializable dictionary."""
+        """Convert to a JSON-serializable dictionary.
+        
+        Optimized to minimize deepcopy operations by building new structures
+        directly rather than copying and modifying existing ones.
+        """
 
+        # Only deepcopy metadata once as it may be mutated
         metadata_copy = deepcopy(self.metadata)
         base_metadata = {
             "scenario_id": self.scenario_id,
@@ -67,10 +72,12 @@ class Episode:
             primary_subset = subsets[0]
             full_metadata.setdefault("subset_hint", primary_subset)
 
+        # Build conversation list - only copy mutable content that could be shared
         conversation: List[Dict[str, Any]] = []
         for msg in self.messages:
             entry: Dict[str, Any] = {"role": msg.role}
             content = msg.content
+            # Only deepcopy complex content types that might be mutated
             if isinstance(content, (dict, list)):
                 entry["content"] = deepcopy(content)
             elif content is None:
@@ -80,6 +87,7 @@ class Episode:
             if msg.name:
                 entry["name"] = msg.name
             if msg.tool_calls:
+                # Deepcopy tool_calls as they may contain nested structures
                 entry["tool_calls"] = deepcopy(msg.tool_calls)
             if msg.tool_call_id:
                 entry["tool_call_id"] = msg.tool_call_id
@@ -87,6 +95,7 @@ class Episode:
                 entry["thinking"] = deepcopy(msg.thinking)
             conversation.append(entry)
 
+        # Process available_tools - build set of names efficiently
         available_tools = [deepcopy(tool) for tool in self.available_tools]
         available_names = {
             tool.get("name")
@@ -94,18 +103,23 @@ class Episode:
             if isinstance(tool, dict) and tool.get("name")
         }
 
+        # Process target_tools with a single pass
         normalised_target_tools: List[Dict[str, Any]] = []
         for raw in self.target_tools:
-            entry = deepcopy(raw)
-            name = entry.get("name")
+            # Create new dict instead of deepcopy then modify
+            name = raw.get("name")
             if not name:
                 continue
-            entry.setdefault("reason", "Highlighted as a target tool by the scenario metadata.")
-            entry.setdefault("source", "unspecified")
-            entry.setdefault(
-                "present_in_available_tools",
-                bool(name in available_names),
-            )
+            entry = {
+                "name": name,
+                "reason": raw.get("reason", "Highlighted as a target tool by the scenario metadata."),
+                "source": raw.get("source", "unspecified"),
+                "present_in_available_tools": bool(name in available_names),
+            }
+            # Copy any additional keys from raw
+            for key, value in raw.items():
+                if key not in entry:
+                    entry[key] = value
             normalised_target_tools.append(entry)
 
         final_answer = self._extract_final_answer()
@@ -390,9 +404,19 @@ class Episode:
         return [value]
 
     def _infer_subsets(self, metadata: Dict[str, Any]) -> List[str]:
-        subsets: set[str] = set()
-        assistant_turns = sum(1 for msg in self.messages if msg.role == "assistant")
-        user_turns = sum(1 for msg in self.messages if msg.role == "user")
+        # Use list to maintain insertion order for subsets
+        subsets: List[str] = []
+        seen: set[str] = set()
+        
+        # Single pass over messages to count turns
+        assistant_turns = 0
+        user_turns = 0
+        for msg in self.messages:
+            if msg.role == "assistant":
+                assistant_turns += 1
+            elif msg.role == "user":
+                user_turns += 1
+        
         tool_count = len(self.tool_invocations)
         reflection_passes = metadata.get("generation", {}).get("reflection_passes", 0)
 
@@ -411,8 +435,9 @@ class Episode:
         reflection_passes_int = _coerce_int(reflection_passes)
 
         def _add(tag: str) -> None:
-            if tag and tag not in subsets:
+            if tag and tag not in seen:
                 subsets.append(tag)
+                seen.add(tag)
 
         if assistant_turns <= 1 and user_turns <= 1 and not tool_count and not reflection_passes_int:
             _add("single_turn")
