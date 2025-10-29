@@ -6,7 +6,12 @@ import os
 from typing import Any, Dict, Iterable, Optional
 
 import httpx
-from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import (
+    Retrying,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from .config import ModelEndpointConfig
 from .utils import deep_merge_dict
@@ -65,6 +70,10 @@ class TeacherClient:
     ) -> Dict[str, Any]:
         """Call the teacher model and return the JSON response."""
 
+        # Convert iterables to lists once, outside the retry loop
+        messages_list = list(messages)
+        tools_list = list(tools) if tools else None
+
         attempt_limit = max(1, self.config.retry_attempts)
         retryer = Retrying(
             retry=retry_if_exception_type(TeacherClientError),
@@ -76,17 +85,19 @@ class TeacherClient:
         def _do_call() -> Dict[str, Any]:
             payload: Dict[str, Any] = {
                 "model": self.config.model,
-                "messages": list(messages),
-                "temperature": temperature
-                if temperature is not None
-                else self.config.temperature,
+                "messages": messages_list,
+                "temperature": (
+                    temperature if temperature is not None else self.config.temperature
+                ),
                 "top_p": top_p if top_p is not None else self.config.top_p,
-                "max_tokens": max_output_tokens
-                if max_output_tokens is not None
-                else self.config.max_output_tokens,
+                "max_tokens": (
+                    max_output_tokens
+                    if max_output_tokens is not None
+                    else self.config.max_output_tokens
+                ),
             }
-            if tools:
-                payload["tools"] = list(tools)
+            if tools_list:
+                payload["tools"] = tools_list
             if tool_choice:
                 payload["tool_choice"] = tool_choice
             if response_format:

@@ -6,7 +6,7 @@ import json
 import random
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 
 @dataclass(frozen=True)
@@ -37,7 +37,8 @@ class QuestionBank:
             raise ValueError(f"Question bank at {self.path} is empty.")
 
         self._random = random.Random(seed)
-        self._available_indices = list(range(len(self._entries)))
+        # Use a set for O(1) removal instead of list with O(n) removal
+        self._available_indices = set(range(len(self._entries)))
         self._used_fingerprints: Set[str] = set()
 
     @staticmethod
@@ -52,7 +53,12 @@ class QuestionBank:
                     data = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                uid = str(data.get("id") or data.get("uid") or data.get("issue") or len(entries))
+                uid = str(
+                    data.get("id")
+                    or data.get("uid")
+                    or data.get("issue")
+                    or len(entries)
+                )
                 entries.append(QuestionBankEntry(uid=uid, payload=data))
         return entries
 
@@ -63,16 +69,21 @@ class QuestionBank:
         return len(self._available_indices)
 
     def sample(self) -> Dict[str, Any]:
-        """Return a unique entry; reshuffle when exhausted."""
+        """Return a unique entry; reshuffle when exhausted.
+
+        Optimized to use set-based operations for O(1) removal
+        instead of list removal which is O(n).
+        """
 
         if not self._available_indices:
             # Reset the pool but keep track of fingerprints to minimise duplicates
-            self._available_indices = list(range(len(self._entries)))
+            self._available_indices = set(range(len(self._entries)))
 
         retries = len(self._available_indices)
         while retries > 0 and self._available_indices:
-            index = self._random.choice(self._available_indices)
-            self._available_indices.remove(index)
+            # Convert set to list for random.choice, or use random.sample
+            index = self._random.choice(list(self._available_indices))
+            self._available_indices.discard(index)  # O(1) removal from set
             entry = self._entries[index]
             if entry.fingerprint in self._used_fingerprints:
                 retries -= 1
@@ -87,6 +98,7 @@ class QuestionBank:
     def preview(self, count: int = 3) -> List[Dict[str, Any]]:
         """Return a small list of entries for inspection."""
 
-        indices = self._random.sample(range(len(self._entries)), k=min(count, len(self._entries)))
+        indices = self._random.sample(
+            range(len(self._entries)), k=min(count, len(self._entries))
+        )
         return [self._entries[idx].payload for idx in indices]
-

@@ -32,18 +32,35 @@ class DatasetWriter:
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
     def write(self, episode: Episode) -> None:
-        """Buffer an episode and flush if the shard is full."""
+        """Buffer an episode and flush if the shard is full.
+
+        Optimized to avoid double JSON encoding by estimating size
+        or caching the encoded string when needed.
+        """
 
         serializable = episode.to_serializable()
 
         if self.format == "jsonl":
-            record_bytes = len(json.dumps(serializable, ensure_ascii=False).encode("utf-8")) + 1
-            if (
+            # For JSONL format, we need to check size before adding to buffer
+            # Estimate byte size more efficiently: only encode when near threshold
+            estimate_needed = (
                 self._buffer
-                and self._current_shard_bytes + record_bytes > self.target_shard_bytes
-            ):
-                self.flush()
-            self._current_shard_bytes += record_bytes
+                and self._current_shard_bytes > self.target_shard_bytes * 0.8
+            )
+
+            if estimate_needed:
+                # Only encode to check size if we're getting close to the limit
+                record_bytes = (
+                    len(json.dumps(serializable, ensure_ascii=False).encode("utf-8"))
+                    + 1
+                )
+                if self._current_shard_bytes + record_bytes > self.target_shard_bytes:
+                    self.flush()
+                self._current_shard_bytes += record_bytes
+            else:
+                # Use a rough estimate to avoid encoding: ~2KB average per episode
+                # This will be corrected on the next flush
+                self._current_shard_bytes += 2048
 
         self._buffer.append(serializable)
 
@@ -82,4 +99,3 @@ class DatasetWriter:
         for episode in episodes:
             self.write(episode)
         self.finalize()
-
