@@ -7,6 +7,7 @@ import random
 import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from copy import deepcopy
 from datetime import datetime
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
@@ -257,6 +258,7 @@ class AgenticDistillationPipeline:
                 "endpoint": teacher_endpoint.name,
                 "provider": teacher_endpoint.provider,
                 "model": teacher_endpoint.model,
+                "mode": teacher_endpoint.interaction_mode,
                 "temperature": teacher_endpoint.temperature,
                 "top_p": teacher_endpoint.top_p,
                 "max_output_tokens": teacher_endpoint.max_output_tokens,
@@ -608,10 +610,36 @@ class AgenticDistillationPipeline:
 
     @staticmethod
     def _to_message(data: Dict[str, Any]) -> Message:
+        content = data.get("content")
+        safe_content = deepcopy(content) if content is not None else ""
+
+        thinking = data.get("thinking")
+        derived_thinking: Any = None
+        if thinking is None and isinstance(content, list):
+            candidates = [
+                segment
+                for segment in content
+                if isinstance(segment, dict)
+                and segment.get("type") in {"thinking", "reasoning", "thought"}
+            ]
+            if candidates:
+                derived_thinking = deepcopy(candidates)
+
         return Message(
             role=data.get("role", ""),
-            content=data.get("content") or "",
+            content=safe_content,
             name=data.get("name"),
             tool_calls=data.get("tool_calls"),
             tool_call_id=data.get("tool_call_id"),
+            thinking=deepcopy(thinking) if thinking is not None else derived_thinking,
         )
+
+    @staticmethod
+    def _iter_entries(value: Any) -> List[Any]:
+        if value is None:
+            return []
+        if isinstance(value, dict):
+            return [value]
+        if isinstance(value, (list, tuple, set)):
+            return list(value)
+        return [value]

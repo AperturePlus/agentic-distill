@@ -14,10 +14,11 @@ class Message:
     """Chat-style message exchanged with the teacher model."""
 
     role: str
-    content: str
+    content: Any
     name: Optional[str] = None
     tool_calls: Optional[List[Dict[str, Any]]] = None
     tool_call_id: Optional[str] = None
+    thinking: Optional[Any] = None
 
 
 @dataclass
@@ -66,16 +67,25 @@ class Episode:
             primary_subset = subsets[0]
             full_metadata.setdefault("subset_hint", primary_subset)
 
-        conversation = [
-            {
-                "role": msg.role,
-                "content": msg.content,
-                **({"name": msg.name} if msg.name else {}),
-                **({"tool_calls": msg.tool_calls} if msg.tool_calls else {}),
-                **({"tool_call_id": msg.tool_call_id} if msg.tool_call_id else {}),
-            }
-            for msg in self.messages
-        ]
+        conversation: List[Dict[str, Any]] = []
+        for msg in self.messages:
+            entry: Dict[str, Any] = {"role": msg.role}
+            content = msg.content
+            if isinstance(content, (dict, list)):
+                entry["content"] = deepcopy(content)
+            elif content is None:
+                entry["content"] = ""
+            else:
+                entry["content"] = content
+            if msg.name:
+                entry["name"] = msg.name
+            if msg.tool_calls:
+                entry["tool_calls"] = deepcopy(msg.tool_calls)
+            if msg.tool_call_id:
+                entry["tool_call_id"] = msg.tool_call_id
+            if msg.thinking is not None:
+                entry["thinking"] = deepcopy(msg.thinking)
+            conversation.append(entry)
 
         available_tools = [deepcopy(tool) for tool in self.available_tools]
         available_names = {
@@ -114,8 +124,13 @@ class Episode:
             normalised_target_tools,
         )
 
+        thinking_traces = self._extract_thinking_traces()
+
+        primary_subset = subsets[0] if subsets else None
+
         return {
             "uuid": self.uuid,
+            "subset": primary_subset,
             "subsets": subsets,
             "metadata": full_metadata,
             "question": {
@@ -142,14 +157,84 @@ class Episode:
                 ],
                 "assessments": response_assessments,
                 "metadata": response_metadata,
+                "thinking_traces": thinking_traces,
             },
         }
 
     def _extract_final_answer(self) -> str:
         for message in reversed(self.messages):
-            if message.role == "assistant" and message.content:
-                return message.content
+            if message.role != "assistant":
+                continue
+            text = self._normalise_content_to_text(message.content)
+            if text:
+                return text
         return ""
+
+    def _extract_thinking_traces(self) -> List[Dict[str, Any]]:
+        traces: List[Dict[str, Any]] = []
+        for index, message in enumerate(self.messages):
+            if message.role != "assistant":
+                continue
+            segments = self._normalise_thinking_segments(message)
+            if segments:
+                traces.append({"turn": index, "segments": segments})
+        return traces
+
+    def _normalise_content_to_text(self, content: Any) -> str:
+        if isinstance(content, str):
+            return content.strip()
+        if isinstance(content, list):
+            parts: List[str] = []
+            for item in content:
+                if isinstance(item, str):
+                    candidate = item.strip()
+                    if candidate:
+                        parts.append(candidate)
+                elif isinstance(item, dict):
+                    content_type = str(item.get("type", "")).lower()
+                    if content_type in {"thinking", "reasoning", "thought"}:
+                        continue
+                    text_value = item.get("text") or item.get("content") or item.get("value")
+                    if isinstance(text_value, str):
+                        candidate = text_value.strip()
+                        if candidate:
+                            parts.append(candidate)
+            return "\n".join(parts).strip()
+        if isinstance(content, dict):
+            text_value = content.get("text") or content.get("content") or content.get("value")
+            if isinstance(text_value, str):
+                return text_value.strip()
+        return ""
+
+    def _normalise_thinking_segments(self, message: Message) -> List[Dict[str, Any]]:
+        segments: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+
+        def _add(entry: Any) -> None:
+            if isinstance(entry, dict):
+                cleaned = {key: deepcopy(value) for key, value in entry.items()}
+                serialised = repr(sorted(cleaned.items()))
+                if cleaned and serialised not in seen:
+                    seen.add(serialised)
+                    segments.append(cleaned)
+            elif isinstance(entry, str):
+                cleaned = entry.strip()
+                if cleaned:
+                    serialised = f"text:{cleaned}"
+                    if serialised not in seen:
+                        seen.add(serialised)
+                        segments.append({"type": "text", "text": cleaned})
+
+        if message.thinking is not None:
+            for entry in self._iter_normalised(message.thinking):
+                _add(entry)
+
+        if isinstance(message.content, list):
+            for item in message.content:
+                if isinstance(item, dict) and item.get("type") in {"thinking", "reasoning", "thought"}:
+                    _add(item)
+
+        return segments
 
     def _extract_question_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
         relevant_keys = [
@@ -188,8 +273,27 @@ class Episode:
         summaries_payload = self._normalise_tool_entries(tool_summaries)
         featured_payload = self._normalise_tool_entries(featured)
         focus_list = self._normalise_string_list(focus_entries)
+        tool_names = self._normalise_string_list(metadata.get("tool_names"))
 
-        if not any([server_payload, summaries_payload, featured_payload, focus_list]):
+        has_sdk = metadata.get("python_sdk_snippet")
+        if isinstance(has_sdk, (list, tuple)):
+            sdk_joined = "\n".join(str(part) for part in has_sdk if part)
+            has_sdk = sdk_joined.strip() if sdk_joined.strip() else None
+        elif isinstance(has_sdk, str):
+            has_sdk = has_sdk.strip() or None
+        else:
+            has_sdk = None
+
+        if not any(
+            [
+                server_payload,
+                summaries_payload,
+                featured_payload,
+                focus_list,
+                tool_names,
+                has_sdk,
+            ]
+        ):
             return None
 
         mcp_metadata: Dict[str, Any] = {}
@@ -201,10 +305,15 @@ class Episode:
             mcp_metadata["featured_tools"] = featured_payload
         if focus_list:
             mcp_metadata["focus"] = focus_list
+        if tool_names:
+            mcp_metadata["tool_names"] = tool_names
 
         for key in ("mission", "analysis", "overview"):
             if metadata.get(key):
                 mcp_metadata[key] = metadata[key]
+
+        if has_sdk:
+            mcp_metadata["python_sdk_snippet"] = has_sdk
 
         return mcp_metadata or None
 
@@ -228,6 +337,7 @@ class Episode:
             "source_file",
             "connection_url",
             "python_sdk_url",
+            "python_sdk_snippet",
         }
 
         payload: Dict[str, Any] = {}
@@ -300,28 +410,48 @@ class Episode:
 
         reflection_passes_int = _coerce_int(reflection_passes)
 
+        def _add(tag: str) -> None:
+            if tag and tag not in subsets:
+                subsets.append(tag)
+
         if assistant_turns <= 1 and user_turns <= 1 and not tool_count and not reflection_passes_int:
-            subsets.add("single_turn")
+            _add("single_turn")
         else:
-            subsets.add("multi_turn")
+            _add("multi_turn")
 
         if tool_count:
-            subsets.add("tool_use")
+            _add("tool_use")
 
         if reflection_passes_int:
-            subsets.add("reflection")
+            _add("reflection")
+
+        teacher_mode = (
+            metadata.get("generation", {})
+            .get("teacher", {})
+            .get("mode")
+        )
+        if isinstance(teacher_mode, str) and teacher_mode.lower().startswith("thinking"):
+            _add("thinking_model")
 
         scenario_type = metadata.get("scenario_type")
         if isinstance(scenario_type, str):
-            if scenario_type.lower().startswith("mcp"):
-                subsets.add("mcp")
-            else:
-                subsets.add(scenario_type)
+            normalised = scenario_type.strip()
+            if normalised:
+                if normalised.lower().startswith("mcp"):
+                    _add("mcp")
+                else:
+                    _add(normalised)
 
         if metadata.get("mcp"):
-            subsets.add("mcp")
+            _add("mcp")
 
-        return sorted(subsets)
+        for extra in self._iter_normalised(metadata.get("subsets")):
+            if isinstance(extra, str):
+                candidate = extra.strip()
+                if candidate:
+                    _add(candidate)
+
+        return subsets
 
     def _build_question_assessments(
         self,

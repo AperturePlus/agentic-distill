@@ -3,6 +3,9 @@ schema:
   uuid:
     type: string
     description: Stable unique identifier for the distilled record.
+  subset:
+    type: string
+    description: Primary subset tag for quick sampling (e.g. single_turn, multi_turn).
   subsets:
     type: array
     description: Categorisation tags for downstream sampling (e.g. single_turn, multi_turn, mcp).
@@ -14,7 +17,40 @@ schema:
     properties:
       scenario_id: {type: string}
       created_at: {type: string, format: date-time}
-      generation: {type: object}
+      generation:
+        type: object
+        description: Execution provenance for the distillation run and associated reviewers.
+        properties:
+          run_name: {type: string}
+          seed: {type: [integer, string]}
+          reflection_passes: {type: [integer, string]}
+          teacher:
+            type: object
+            properties:
+              endpoint: {type: string}
+              provider: {type: string}
+              model: {type: string}
+              mode:
+                type: string
+                description: Teacher endpoint interaction style (instruct, thinking, auto).
+              temperature: {type: [number, string]}
+              top_p: {type: [number, string]}
+              max_output_tokens: {type: [integer, string]}
+            required: [endpoint, provider, model]
+          review:
+            type: array
+            description: Chronological reviewer passes, typically sorted by round.
+            items:
+              type: object
+              properties:
+                round: {type: [integer, string]}
+                reviewer_endpoint: {type: string}
+                reviewer_model: {type: string}
+                score: {type: [number, string]}
+                needs_revision: {type: boolean}
+                feedback: {type: string}
+                metadata: {type: object}
+          teacher_retry_count: {type: [integer, string]}
       subset_hint:
         type: string
         description: Primary subset tag chosen for quick lookups.
@@ -40,6 +76,9 @@ schema:
               source_file: {type: string}
               connection_url: {type: string}
               python_sdk_url: {type: string}
+          tool_names:
+            type: array
+            items: {type: string}
           tool_summaries:
             type: array
             items:
@@ -62,6 +101,7 @@ schema:
           mission: {type: string}
           analysis: {type: string}
           overview: {type: string}
+          python_sdk_snippet: {type: string}
   question:
     type: object
     description: Normalised scenario instructions delivered to the teacher model.
@@ -115,6 +155,21 @@ schema:
         items:
           type: object
           required: [role, content]
+          properties:
+            role: {type: string}
+            content:
+              oneOf:
+                - type: string
+                - type: array
+                  items:
+                    type: object
+            thinking:
+              description: Optional structured thinking traces emitted by thinking models.
+              oneOf:
+                - type: string
+                - type: array
+                  items:
+                    type: object
       final_answer: {type: string}
       tool_invocations:
         type: array
@@ -136,15 +191,27 @@ schema:
             required: [value, reason]
       metadata:
         type: object
+      thinking_traces:
+        type: array
+        description: Structured reasoning segments captured when using thinking models.
+        items:
+          type: object
+          properties:
+            turn: {type: integer}
+            segments:
+              type: array
+              items: {type: object}
 example:
   uuid: "819c9f0a-42fc-4fd9-b538-14b56be6fe42"
-  subsets: ["multi_turn", "mcp", "tool_use"]
+  subset: "multi_turn"
+  subsets: ["multi_turn", "thinking_model", "mcp", "tool_use"]
   metadata:
     scenario_id: "mcp/server-12345"
     created_at: "2025-01-01T08:15:00Z"
     generation:
       teacher:
         endpoint: "distill-cluster-a"
+        mode: "thinking"
       review:
         - score: 0.92
           needs_revision: false
@@ -170,6 +237,8 @@ example:
       mission: "stress-test the server"
       analysis: "Deep dive into risk factors"
       overview: "Knowledge management"
+      python_sdk_snippet: "async def main(): ..."
+      tool_names: ["search_notes", "list_spaces"]
   question:
     id: "mcp/server-12345"
     system_prompt: "You are an autonomous solutions architect..."
@@ -196,8 +265,15 @@ example:
       - role: user
         content: "Server dossier: **Example Server** ..."
       - role: assistant
-        content: "Here is the detailed integration plan..."
+        thinking:
+          - {type: "thinking", text: "Reviewing mission requirements."}
+        content:
+          - {type: "output_text", text: "Here is the detailed integration plan..."}
     final_answer: "Here is the detailed integration plan..."
+    thinking_traces:
+      - turn: 2
+        segments:
+          - {type: "thinking", text: "Reviewing mission requirements."}
     tool_invocations: []
     assessments:
       quality:

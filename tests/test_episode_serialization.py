@@ -79,6 +79,7 @@ def test_episode_serialization_contains_rich_metadata() -> None:
     payload = episode.to_serializable()
 
     assert payload["uuid"], "uuid should be populated"
+    assert payload["subset"] == "multi_turn"
     assert "mcp" in payload["metadata"], "MCP metadata should be normalised"
     assert payload["metadata"]["scenario_id"] == "mcp/kibela-123"
     assert payload["metadata"]["subset_hint"] in payload["subsets"]
@@ -91,6 +92,7 @@ def test_episode_serialization_contains_rich_metadata() -> None:
     assert "search_notes" in tool_alignment["reason"]
     assert payload["response"]["assessments"]["language_compliance"]["value"] == "pass"
     assert payload["response"]["metadata"]["generation"]["review"], "review metadata should persist"
+    assert payload["response"]["thinking_traces"] == []
 
 
 def test_dataset_writer_splits_by_target_size(tmp_path) -> None:
@@ -150,3 +152,41 @@ def test_single_turn_subset_detection() -> None:
     payload = episode.to_serializable()
 
     assert payload["subsets"] == ["single_turn"]
+    assert payload["subset"] == "single_turn"
+    assert payload["response"]["thinking_traces"] == []
+
+
+def test_thinking_segments_are_preserved() -> None:
+    system_prompt = "System priming"
+    user_prompt = "Explain the approach."
+    assistant_content = [
+        {"type": "thinking", "text": "Evaluating requirements."},
+        {"type": "output_text", "text": "Final answer ready."},
+    ]
+
+    messages = [
+        Message(role="system", content=system_prompt),
+        Message(role="user", content=user_prompt),
+        Message(role="assistant", content=assistant_content),
+    ]
+
+    episode = Episode(
+        scenario_id="thinking/1",
+        created_at=datetime.utcnow(),
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        messages=messages,
+        metadata={
+            "generation": {"teacher": {"mode": "thinking"}},
+        },
+    )
+
+    payload = episode.to_serializable()
+
+    assert payload["subset"] == "single_turn"
+    assert "thinking_model" in payload["subsets"]
+    assert payload["response"]["final_answer"] == "Final answer ready."
+    thinking_traces = payload["response"]["thinking_traces"]
+    assert len(thinking_traces) == 1
+    assert thinking_traces[0]["turn"] == 2
+    assert thinking_traces[0]["segments"][0]["text"] == "Evaluating requirements."

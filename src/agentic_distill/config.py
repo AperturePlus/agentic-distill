@@ -19,6 +19,14 @@ class ModelEndpointConfig(BaseModel):
         ..., description="Identifier for the API provider (e.g. openai, anthropic, custom)."
     )
     model: str = Field(..., description="Model name or deployment identifier.")
+    interaction_mode: Literal["instruct", "thinking", "auto"] = Field(
+        "instruct",
+        description=(
+            "High-level behaviour descriptor for the model. 'thinking' models emit structured "
+            "reasoning segments that should be captured in the dataset; 'auto' lets downstream "
+            "logic infer behaviour dynamically."
+        ),
+    )
     api_key_env: str = Field(
         "TEACHER_API_KEY",
         description="Environment variable containing the API key.",
