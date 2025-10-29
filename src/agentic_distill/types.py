@@ -390,7 +390,7 @@ class Episode:
         return [value]
 
     def _infer_subsets(self, metadata: Dict[str, Any]) -> List[str]:
-        subsets: List[str] = []
+        subsets: set[str] = set()
         assistant_turns = sum(1 for msg in self.messages if msg.role == "assistant")
         user_turns = sum(1 for msg in self.messages if msg.role == "user")
         tool_count = len(self.tool_invocations)

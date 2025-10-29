@@ -332,6 +332,15 @@ class AgenticDistillationPipeline:
             tools.append(record)
             seen.add(name)
 
+        def iter_entries(value: Any) -> List[Any]:
+            if value is None:
+                return []
+            if isinstance(value, dict):
+                return [value]
+            if isinstance(value, (list, tuple, set)):
+                return list(value)
+            return [value]
+
         if sample.tools:
             for tool in sample.tools:
                 if isinstance(tool, dict) and tool.get("type") == "function":
@@ -340,12 +349,12 @@ class AgenticDistillationPipeline:
                         add_tool(function, "scenario.tools")
 
         for key in ("tool_definitions", "tool_summaries", "selected_tool_details"):
-            for entry in self._iter_entries(metadata.get(key)):
+            for entry in iter_entries(metadata.get(key)):
                 if isinstance(entry, dict):
                     add_tool(entry, f"metadata.{key}")
 
         source_case = metadata.get("source_case") or {}
-        for entry in self._iter_entries(source_case.get("tools")):
+        for entry in iter_entries(source_case.get("tools")):
             if isinstance(entry, dict):
                 add_tool(entry, "metadata.source_case.tools")
 
@@ -363,7 +372,7 @@ class AgenticDistillationPipeline:
         }
 
         def register(items: Any, source: str) -> None:
-            for item in self._iter_entries(items):
+            for item in iter_entries(items):
                 if isinstance(item, dict):
                     name = item.get("name")
                     reason = item.get("reason")
