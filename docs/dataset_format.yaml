@@ -1,0 +1,281 @@
+version: 1
+schema:
+  uuid:
+    type: string
+    description: Stable unique identifier for the distilled record.
+  subset:
+    type: string
+    description: Primary subset tag for quick sampling (e.g. single_turn, multi_turn).
+  subsets:
+    type: array
+    description: Categorisation tags for downstream sampling (e.g. single_turn, multi_turn, mcp).
+    items:
+      type: string
+  metadata:
+    type: object
+    description: Run-level provenance and scenario context merged from generators and pipeline.
+    properties:
+      scenario_id: {type: string}
+      created_at: {type: string, format: date-time}
+      generation:
+        type: object
+        description: Execution provenance for the distillation run and associated reviewers.
+        properties:
+          run_name: {type: string}
+          seed: {type: [integer, string]}
+          reflection_passes: {type: [integer, string]}
+          teacher:
+            type: object
+            properties:
+              endpoint: {type: string}
+              provider: {type: string}
+              model: {type: string}
+              mode:
+                type: string
+                description: Teacher endpoint interaction style (instruct, thinking, auto).
+              temperature: {type: [number, string]}
+              top_p: {type: [number, string]}
+              max_output_tokens: {type: [integer, string]}
+            required: [endpoint, provider, model]
+          review:
+            type: array
+            description: Chronological reviewer passes, typically sorted by round.
+            items:
+              type: object
+              properties:
+                round: {type: [integer, string]}
+                reviewer_endpoint: {type: string}
+                reviewer_model: {type: string}
+                score: {type: [number, string]}
+                needs_revision: {type: boolean}
+                feedback: {type: string}
+                metadata: {type: object}
+          teacher_retry_count: {type: [integer, string]}
+      subset_hint:
+        type: string
+        description: Primary subset tag chosen for quick lookups.
+      mcp:
+        type: object
+        description: Normalised MCP descriptor information when the scenario originates from MCP corpora.
+        properties:
+          server:
+            type: object
+            properties:
+              id: {type: [integer, string]}
+              name: {type: string}
+              primary_label: {type: string}
+              secondary_labels: {type: array, items: {type: string}}
+              custom_label: {type: string}
+              tags: {type: array, items: {type: string}}
+              categories: {type: array, items: {type: string}}
+              featured: {type: boolean}
+              usage_count: {type: [integer, string]}
+              author: {type: string}
+              homepage: {type: string}
+              repository_url: {type: string}
+              source_file: {type: string}
+              connection_url: {type: string}
+              python_sdk_url: {type: string}
+          tool_names:
+            type: array
+            items: {type: string}
+          tool_summaries:
+            type: array
+            items:
+              type: object
+              required: [name]
+              properties:
+                name: {type: string}
+                description: {type: string}
+          featured_tools:
+            type: array
+            items:
+              type: object
+              required: [name]
+              properties:
+                name: {type: string}
+                description: {type: string}
+          focus:
+            type: array
+            items: {type: string}
+          mission: {type: string}
+          analysis: {type: string}
+          overview: {type: string}
+          python_sdk_snippet: {type: string}
+  question:
+    type: object
+    description: Normalised scenario instructions delivered to the teacher model.
+    properties:
+      id: {type: string}
+      system_prompt: {type: string}
+      text: {type: string}
+      language_policy: {type: string}
+      metadata:
+        type: object
+      assessments:
+        type: object
+        description: Per-dimension evaluations with reasoning.
+        patternProperties:
+          ".+":
+            type: object
+            properties:
+              value: {type: [string, number]}
+              reason: {type: string}
+            required: [value, reason]
+  available_tools:
+    type: array
+    description: Canonical tool catalogue aggregated from scenario metadata and MCP descriptors.
+    items:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string}
+        description: {type: string}
+        parameters: {type: object}
+        categories: {type: array, items: {type: string}}
+        tags: {type: array, items: {type: string}}
+        source: {type: string}
+  target_tools:
+    type: array
+    description: Priority tools to emphasise during execution along with justification.
+    items:
+      type: object
+      required: [name, reason]
+      properties:
+        name: {type: string}
+        reason: {type: string}
+        source: {type: string}
+        present_in_available_tools: {type: boolean}
+  response:
+    type: object
+    description: Normalised assistant trajectory and evaluations.
+    properties:
+      messages:
+        type: array
+        items:
+          type: object
+          required: [role, content]
+          properties:
+            role: {type: string}
+            content:
+              oneOf:
+                - type: string
+                - type: array
+                  items:
+                    type: object
+            thinking:
+              description: Optional structured thinking traces emitted by thinking models.
+              oneOf:
+                - type: string
+                - type: array
+                  items:
+                    type: object
+      final_answer: {type: string}
+      tool_invocations:
+        type: array
+        items:
+          type: object
+          properties:
+            name: {type: string}
+            arguments: {type: object}
+            output: {type: object}
+            success: {type: boolean}
+      assessments:
+        type: object
+        patternProperties:
+          ".+":
+            type: object
+            properties:
+              value: {type: [string, number]}
+              reason: {type: string}
+            required: [value, reason]
+      metadata:
+        type: object
+      thinking_traces:
+        type: array
+        description: Structured reasoning segments captured when using thinking models.
+        items:
+          type: object
+          properties:
+            turn: {type: integer}
+            segments:
+              type: array
+              items: {type: object}
+example:
+  uuid: "819c9f0a-42fc-4fd9-b538-14b56be6fe42"
+  subset: "multi_turn"
+  subsets: ["multi_turn", "thinking_model", "mcp", "tool_use"]
+  metadata:
+    scenario_id: "mcp/server-12345"
+    created_at: "2025-01-01T08:15:00Z"
+    generation:
+      teacher:
+        endpoint: "distill-cluster-a"
+        mode: "thinking"
+      review:
+        - score: 0.92
+          needs_revision: false
+    subset_hint: "multi_turn"
+    mcp:
+      server:
+        id: 12345
+        name: "Example Server"
+        primary_label: "Knowledge"
+        secondary_labels: ["Productivity"]
+        featured: true
+        usage_count: 402
+        source_file: "example_server.json"
+        connection_url: "https://mcp.example/api"
+        python_sdk_url: "https://github.com/example/sdk"
+      tool_summaries:
+        - name: "search_notes"
+          description: "Query indexed knowledge base entries."
+      featured_tools:
+        - name: "search_notes"
+          description: "Query indexed knowledge base entries."
+      focus: ["search_notes"]
+      mission: "stress-test the server"
+      analysis: "Deep dive into risk factors"
+      overview: "Knowledge management"
+      python_sdk_snippet: "async def main(): ..."
+      tool_names: ["search_notes", "list_spaces"]
+  question:
+    id: "mcp/server-12345"
+    system_prompt: "You are an autonomous solutions architect..."
+    text: "Server dossier: **Example Server** ..."
+    language_policy: "en-primary zh-secondary"
+    assessments:
+      difficulty:
+        value: "high"
+        reason: "Server flagged as high risk and demands orchestrating 4 distinct tools."
+  available_tools:
+    - name: "search_notes"
+      description: "Query indexed knowledge base entries."
+      categories: ["knowledge"]
+      source: "metadata.tool_summaries"
+  target_tools:
+    - name: "search_notes"
+      reason: "Highlighted in tool_focus field from MCP metadata."
+      source: "metadata.tool_focus"
+      present_in_available_tools: true
+  response:
+    messages:
+      - role: system
+        content: "You are an autonomous solutions architect..."
+      - role: user
+        content: "Server dossier: **Example Server** ..."
+      - role: assistant
+        thinking:
+          - {type: "thinking", text: "Reviewing mission requirements."}
+        content:
+          - {type: "output_text", text: "Here is the detailed integration plan..."}
+    final_answer: "Here is the detailed integration plan..."
+    thinking_traces:
+      - turn: 2
+        segments:
+          - {type: "thinking", text: "Reviewing mission requirements."}
+    tool_invocations: []
+    assessments:
+      quality:
+        value: 0.94
+        reason: "Validation rubric confirmed workflow coverage."

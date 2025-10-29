@@ -32,6 +32,7 @@ flowchart LR
 - **Language Guardrails:** Global prompts ensure outputs stay primarily in English with succinct Chinese summaries when useful.
 - **Parallelised Sampling:** Configurable thread pools keep several scenarios distilling simultaneously for higher throughput.
 - **MCP Scenario Library:** Dozens of MCP server dossiers are sampled to generate integration blueprints and prompt-engineering workflows, expanding coverage beyond terminal and telecom domains.
+- **Thinking-Aware Logging:** Capture structured reasoning traces whenever a thinking-mode endpoint is selected, while traditional instruct endpoints continue to emit concise messages.
 - **Extensible Storage:** Pluggable sinks for JSONL (default), Parquet, or direct uploads to object stores.
 - **Benchmark Hooks:** Predefined scenario families inspired by TerminalBench, T^2 Bench, and telecom support flows, ready for expansion.
 
@@ -89,35 +90,66 @@ After banks are refreshed, proceed with the standard distillation run.
 - Ensure the language mix meets expectations (English narratives with optional Chinese recaps).
 - Use the QA checklist (`docs/qa_checklist.md`) after each batch.
 
-### Metadata At A Glance
+### Dataset Snapshot
 
-Every episode now stores structured generation metadata under `metadata.generation`, e.g.:
+Each JSONL entry includes UUIDs, subset tags, richly structured metadata, tool catalogues, and per-dimension assessments. A minimal record looks like:
 
 ```json
 {
-  "generation": {
-    "run_name": "mcp-batch-001",
-    "teacher": {
-      "endpoint": "frontier-default",
-      "provider": "openai",
-      "model": "gpt-4.1",
-      "temperature": 0.16,
-      "top_p": 0.9,
-      "max_output_tokens": 3584
-    },
-    "review": [
-      {"round": 0, "reviewer_endpoint": "reviewer-judge", "reviewer_model": "gpt-4.1-mini", "score": 0.92, "...": "..."}
-    ],
-    "reflection_passes": 2,
-    "seed": 1234
+  "uuid": "6c4ed3ba-9364-4dcb-9279-c0a972b6c937",
+  "subset": "single_turn",
+  "subsets": ["single_turn", "mcp", "has_thinking"],
+  "metadata": {
+    "scenario_id": "terminal.mcp_firmware_update",
+    "subset_hint": "single_turn",
+    "mcp": {"server": {"name": "Firmware Fixer", "featured": true}},
+    "generation": {
+      "run_name": "mcp-batch-001",
+      "teacher": {
+        "endpoint": "frontier-default",
+        "provider": "openai",
+        "model": "gpt-4.1",
+        "mode": "thinking",
+        "temperature": 0.16,
+        "top_p": 0.9,
+        "max_output_tokens": 3584
+      },
+      "review": [
+        {
+          "round": 0,
+          "reviewer_endpoint": "reviewer-judge",
+          "reviewer_model": "gpt-4.1-mini",
+          "score": 0.92,
+          "needs_revision": false
+        }
+      ],
+      "reflection_passes": 2,
+      "seed": 1234
+    }
   },
-  "scenario_type": "mcp_integration",
-  "language_policy": "en-primary zh-secondary",
-  "validation_feedback": "Balanced tool analysis with metadata block."
+  "question": {
+    "text": "Help the engineer plan a firmware recovery run.",
+    "assessments": {"difficulty": {"value": "medium", "reason": "Single action but technical constraints."}}
+  },
+  "available_tools": [{"name": "firmware.apply_patch", "source": "scenario.tools"}],
+  "target_tools": [{"name": "firmware.apply_patch", "reason": "Primary action to execute the fix."}],
+  "response": {
+    "messages": [
+      {
+        "role": "assistant",
+        "content": "I'll walk through the patch procedure and then run it.",
+        "thinking": [
+          {"phase": "plan", "text": "Outline verification steps before invoking tool."}
+        ]
+      }
+    ],
+    "final_answer": "Plan validated. Ready to execute firmware.apply_patch.",
+    "assessments": {"quality": {"value": 4.5, "reason": "Clear rationale and tool justification."}}
+  }
 }
 ```
 
-Use this block to track which models generated or reviewed each trace and to filter by scenario type or language policy.
+Use the `subset` and `subsets` fields to quickly slice the dataset (e.g., single vs. multi-turn), while the `metadata.generation.teacher.mode` flag reveals whether the sample came from an instruct or thinking endpoint. `response.messages[].thinking` captures structured reasoning traces for thinking-capable teachers, enabling downstream experiments without losing compatibility with instruct-style outputs.
 
 ## Repository Layout
 

@@ -32,6 +32,7 @@ flowchart LR
 - **审核者精炼（Reviewer Refinement）：** 使用第二模型为每条轨迹打分，驱动自动精炼流程并强制执行严格的接受阈值。
 - **语言护栏（Language Guardrails）：** 全局提示确保输出主要以英文为主，同时在有用时提供简洁的中文摘要。
 - **并行采样（Parallelised Sampling）：** 可配置的线程/任务池允许并行蒸馏多个场景以提高吞吐量。
+- **思维轨迹记录：** 当选用 thinking 模式端点时会捕获结构化的推理过程，同时 instruct 模式端点仍保持精炼输出。
 - **可扩展存储：** 可插拔的输出目标，支持 JSONL（默认）、Parquet，或直接上传至对象存储。
 - **基准钩子：** 预定义的场景族受 TerminalBench、T^2 Bench 与电信支持流程启发，可继续扩展。
 - **配置驱动：** 通过 YAML/TOML 配置文件映射场景混合、采样配额、teacher/reviewer 参数与输出位置。
@@ -103,35 +104,66 @@ head -n 2 data/exports/terminal/shard-00000.jsonl | jq .
 - 确认语言混合是否符合预期（以英文叙述为主，必要时有中文简要回顾）。
 - 每批次之后，使用 QA checklist（`docs/qa_checklist.md`）进行人工/自动抽查。
 
-### 元数据一览
+### 数据集快照
 
-每个回合（episode）现在在 `metadata.generation` 下存储了结构化的生成元数据，示例如下：
+每条 JSONL 记录都包含 UUID、子集标签、详尽的元数据、工具目录以及多维评估。最小示例如下：
 
 ```json
 {
-   "generation": {
+  "uuid": "6c4ed3ba-9364-4dcb-9279-c0a972b6c937",
+  "subset": "single_turn",
+  "subsets": ["single_turn", "mcp", "has_thinking"],
+  "metadata": {
+    "scenario_id": "terminal.mcp_firmware_update",
+    "subset_hint": "single_turn",
+    "mcp": {"server": {"name": "Firmware Fixer", "featured": true}},
+    "generation": {
       "run_name": "mcp-batch-001",
       "teacher": {
-         "endpoint": "frontier-default",
-         "provider": "openai",
-         "model": "gpt-4.1",
-         "temperature": 0.16,
-         "top_p": 0.9,
-         "max_output_tokens": 3584
+        "endpoint": "frontier-default",
+        "provider": "openai",
+        "model": "gpt-4.1",
+        "mode": "thinking",
+        "temperature": 0.16,
+        "top_p": 0.9,
+        "max_output_tokens": 3584
       },
       "review": [
-         {"round": 0, "reviewer_endpoint": "reviewer-judge", "reviewer_model": "gpt-4.1-mini", "score": 0.92}
+        {
+          "round": 0,
+          "reviewer_endpoint": "reviewer-judge",
+          "reviewer_model": "gpt-4.1-mini",
+          "score": 0.92,
+          "needs_revision": false
+        }
       ],
       "reflection_passes": 2,
       "seed": 1234
-   },
-   "scenario_type": "mcp_integration",
-   "language_policy": "en-primary zh-secondary",
-   "validation_feedback": "Balanced tool analysis with metadata block."
+    }
+  },
+  "question": {
+    "text": "帮助工程师规划一次固件恢复。",
+    "assessments": {"difficulty": {"value": "medium", "reason": "步骤单一但包含技术约束。"}}
+  },
+  "available_tools": [{"name": "firmware.apply_patch", "source": "scenario.tools"}],
+  "target_tools": [{"name": "firmware.apply_patch", "reason": "执行修复所需的关键工具。"}],
+  "response": {
+    "messages": [
+      {
+        "role": "assistant",
+        "content": "我将梳理补丁流程并在确认后执行。",
+        "thinking": [
+          {"phase": "plan", "text": "在调用工具前明确验证步骤。"}
+        ]
+      }
+    ],
+    "final_answer": "方案已确认，可执行 firmware.apply_patch。",
+    "assessments": {"quality": {"value": 4.5, "reason": "给出了充分的理由与工具说明。"}}
+  }
 }
 ```
 
-使用该元数据块可追踪哪个模型生成或审核了每条轨迹，并可按场景类型或语言策略进行过滤。
+`subset` 与 `subsets` 字段可以帮助快速切分数据集（如单轮 vs. 多轮），`metadata.generation.teacher.mode` 则揭示样本由 instruct 还是 thinking 端点生成。`response.messages[].thinking` 捕捉支持 thinking 的 teacher 所产生的结构化推理，可供后续实验使用，同时仍与 instruct 模式输出兼容。
 
 ## 仓库结构
 

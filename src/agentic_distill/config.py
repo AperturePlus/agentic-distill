@@ -19,6 +19,14 @@ class ModelEndpointConfig(BaseModel):
         ..., description="Identifier for the API provider (e.g. openai, anthropic, custom)."
     )
     model: str = Field(..., description="Model name or deployment identifier.")
+    interaction_mode: Literal["instruct", "thinking", "auto"] = Field(
+        "instruct",
+        description=(
+            "High-level behaviour descriptor for the model. 'thinking' models emit structured "
+            "reasoning segments that should be captured in the dataset; 'auto' lets downstream "
+            "logic infer behaviour dynamically."
+        ),
+    )
     api_key_env: str = Field(
         "TEACHER_API_KEY",
         description="Environment variable containing the API key.",
@@ -102,6 +110,11 @@ class OutputConfig(BaseModel):
     )
     format: str = Field("jsonl", description="Output format: jsonl or parquet.")
     shard_size: int = Field(500, gt=0)
+    target_shard_bytes: int = Field(
+        150 * 1024 * 1024,
+        gt=1024,
+        description="Approximate maximum size (in bytes) for each exported shard.",
+    )
     include_metadata: bool = True
 
     @field_validator("format")
